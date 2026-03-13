@@ -63,21 +63,7 @@ function getMime(filename) {
   );
 }
 
-/** Inject viral footer link before </body>. */
-function injectViralFooter(html) {
-  const viralHtml = `
-  <div style="text-align:center; padding: 20px 0; background: transparent; font-family: sans-serif; position: relative; z-index: 9999;">
-    <a href="https://www.885201314.xyz" target="_blank" style="display:inline-block; padding:8px 16px; background:rgba(255,255,255,0.8); border-radius:20px; color:#d6336c; font-size:12px; font-weight:bold; text-decoration:none; box-shadow:0 2px 10px rgba(0,0,0,0.1); backdrop-filter:blur(4px);">
-      ✨ 想要制作同款浪漫网页？点击创建你的专属页面 ✨
-    </a>
-  </div>`;
-  const bodyEndIdx = html.lastIndexOf('</body>');
-  if (bodyEndIdx !== -1) {
-    return html.substring(0, bodyEndIdx) + viralHtml + '\n' + html.substring(bodyEndIdx);
-  }
-  return html + '\n' + viralHtml;
-}
-
+/** 404 — redirect to main platform. */
 /** 404 — redirect to main platform. */
 function notFoundResponse() {
   return Response.redirect('https://www.885201314.xyz', 302);
@@ -297,12 +283,12 @@ async function handleRequest(request, env, ctx) {
   const obj = await fetchPageHtml(env.ROMANCESPACE_R2, subdomain);
   if (!obj) return notFoundResponse();
 
-  const html = injectViralFooter(await obj.text());
+  let html = await obj.text();
 
   const response = new Response(html, {
     headers: {
       'Content-Type': 'text/html;charset=UTF-8',
-      'Cache-Control': 'public, max-age=0, s-maxage=86400, must-revalidate', // Force browser to revalidate with Cloudflare
+      'Cache-Control': 'public, max-age=86400, s-maxage=86400, must-revalidate', // 24h cache
       ...SEC_HEADERS,
     },
   });
