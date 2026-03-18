@@ -269,10 +269,10 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  // ── Normal mode: Cache API → KV → R2 → Cache ──────────────────
+  // ── Normal mode: Cache API → KV → R2 → Lazy version check ────
   // Normalize URL for caching (Strip query params so that cache purge by URL works)
   const cacheUrl = new URL(request.url);
-  cacheUrl.search = ""; 
+  cacheUrl.search = "";
   const cacheKey = new Request(cacheUrl.toString());
   const cached = await caches.default.match(cacheKey);
   if (cached) return cached;
@@ -280,10 +280,37 @@ async function handleRequest(request, env, ctx) {
   const cfgRaw = await env.ROMANCESPACE_KV.get(subdomain);
   if (!cfgRaw) return notFoundResponse();
 
+  let cfg;
+  try { cfg = JSON.parse(cfgRaw); } catch { return notFoundResponse(); }
+
   const obj = await fetchPageHtml(env.ROMANCESPACE_R2, subdomain);
   if (!obj) return notFoundResponse();
 
   let html = await obj.text();
+
+  // ── Lazy Version Check (Stale-While-Revalidate) ───────────────
+  // Compare the tmpl-version stamp in the stored HTML against the current KV meta.
+  // If stale, trigger a one-shot background re-render on the VPS — no R2 writes here.
+  if (cfg.template) {
+    const tmplMeta = await getTemplateMeta(env.ROMANCESPACE_KV, cfg.template);
+    if (tmplMeta?.version) {
+      const isStale = !html.includes(`<meta name="tmpl-version" content="${tmplMeta.version}">`);
+      if (isStale) {
+        console.log(`[Worker] Stale page detected for ${subdomain} (want: ${tmplMeta.version}). Triggering lazy re-render.`);
+        ctx.waitUntil(
+          fetch(`https://api.885201314.xyz/api/project/re-render/${subdomain}`, {
+            method: 'POST',
+            headers: {
+              'X-Admin-Key': env.ADMIN_KEY ?? '',
+              'Content-Type': 'application/json',
+            },
+          }).catch((e) => console.error('[Worker] Lazy re-render fetch failed:', e.message))
+        );
+        // Serve stale content immediately — user gets the old version for now,
+        // and will see the updated version on the next CDN miss (after re-render + cache purge).
+      }
+    }
+  }
 
   const response = new Response(html, {
     headers: {
