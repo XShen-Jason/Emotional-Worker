@@ -1,7 +1,7 @@
 {
-  "name": "romancespace-worker",
+  "name": "emotionalspace-worker",
   "version": "2.0.0",
-  "description": "Cloudflare Worker for RomanceSpace — R2 template engine",
+  "description": "Cloudflare Worker for Emotional Space — R2 template engine",
   "main": "src/index.js",
   "scripts": {
     "dev": "wrangler dev",

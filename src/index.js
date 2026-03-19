@@ -1,5 +1,5 @@
 /**
- * RomanceSpace Edge Router — READ-ONLY v4 (Defense Hardened)
+ * EmotionalSpace Edge Router — READ-ONLY v4 (Defense Hardened)
  *
  * Architecture (CQRS read-side):
  *   All writes (template upload, page render, KV updates) are handled by the VPS backend.
@@ -88,7 +88,7 @@ function serverErrorResponse(detail = '') {
 <body>
   <h1>💔 页面暂时无法加载</h1>
   <p>服务器正在努力恢复中，请稍后再试。</p>
-  <p><a href="https://www.885201314.xyz">← 返回 RomanceSpace 主页</a></p>
+  <p><a href="https://www.885201314.xyz">← 返回 Emotional Space 主页</a></p>
 </body>
 </html>`;
   return new Response(body, {
@@ -151,95 +151,85 @@ async function handleRequest(request, env, ctx) {
   // ── 0. Doc site passthrough ────────────────────────────────────
   if (host === 'docs.885201314.xyz' || host === 'document.885201314.xyz') {
     const fwd = new URL(request.url);
-    fwd.hostname = 'romancespace-docs.pages.dev';
+    fwd.hostname = 'emotionalspace-docs.pages.dev';
     return fetch(fwd.toString(), request);
   }
 
-  // ── MAIN DOMAIN (Platform Homepage / Assets) ───────────────────
-  const isMainDomain =
-    host === 'romancespace.885201314.xyz' || host === 'www.885201314.xyz' || host.includes('workers.dev');
+  // ── /assets/ and /preview/ work on any hostname (incl. workers.dev for local dev) ──
+  // www.885201314.xyz is served by VPS Nginx — Worker never touches it.
 
-  if (isMainDomain) {
-    if (method !== 'GET') {
-      return new Response(
-        JSON.stringify({ error: 'Write operations are handled by the VPS backend API.' }),
-        { status: 405, headers: { 'Content-Type': 'application/json', ...SEC_HEADERS } }
-      );
-    }
+  // ── GET /assets/{type}/{...filepath} — static template assets
+  if (path.startsWith('/assets/')) {
+    const parts = path.split('/');
+    const type = parts[2];
+    const filePath = parts.slice(3).join('/');
 
-    // ── GET /assets/{type}/{...filepath} — static template assets
-    if (path.startsWith('/assets/')) {
-      const parts = path.split('/'); 
-      const type = parts[2];
-      const filePath = parts.slice(3).join('/');
+    const meta = await getTemplateMeta(env.EMOTIONALSPACE_KV, type);
+    if (!meta) return new Response('Not found', { status: 404 });
 
-      const meta = await getTemplateMeta(env.ROMANCESPACE_KV, type);
-      if (!meta) return new Response('Not found', { status: 404 });
+    const obj = await env.EMOTIONALSPACE_R2.get(`templates/${type}/${meta.version}/${filePath}`);
+    if (!obj) return new Response('Asset not found', { status: 404 });
 
-      const obj = await env.ROMANCESPACE_R2.get(`templates/${type}/${meta.version}/${filePath}`);
-      if (!obj) return new Response('Asset not found', { status: 404 });
-
-      return new Response(obj.body, {
-        headers: {
-          'Content-Type': getMime(filePath),
-          'Cache-Control': 'public, max-age=31536000, immutable', // 1 year (asset is versioned by parent folder)
-          ...SEC_HEADERS,
-        },
-      });
-    }
-
-    // ── GET /preview/{type} — render template with schema defaults
-    if (path.startsWith('/preview/')) {
-      const type = path.split('/')[2];
-      const meta = await getTemplateMeta(env.ROMANCESPACE_KV, type);
-      if (!meta) return new Response('Template not found', { status: 404 });
-
-      const [htmlObj, schemaObj] = await Promise.all([
-        env.ROMANCESPACE_R2.get(`templates/${type}/${meta.version}/index.html`),
-        env.ROMANCESPACE_R2.get(`templates/${type}/${meta.version}/schema.json`),
-      ]);
-      if (!htmlObj) return new Response('Template HTML missing in R2', { status: 404 });
-
-      const html = await htmlObj.text();
-      const schema = schemaObj ? JSON.parse(await schemaObj.text()) : null;
-      const data = {};
-      (schema?.fields ?? []).forEach((f) => {
-        const key = typeof f === 'string' ? f : (f.id || f.key);
-        const defaultValue = typeof f === 'string' ? (f.default ?? '') : (f.default ?? '');
-        data[key] = defaultValue;
-      });
-
-      // Simple injection matching Backend's injectData pattern
-      const rendered = html.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-        const val = data[key] ?? '';
-        return escapeHtml(String(val));
-      });
-
-      return new Response(rendered, {
-        headers: {
-          'Content-Type': 'text/html;charset=UTF-8',
-          'Cache-Control': 'no-cache, no-store',
-          ...SEC_HEADERS,
-        },
-      });
-    }
-
-    if (host === 'romancespace.885201314.xyz') {
-      return Response.redirect('https://www.885201314.xyz' + path, 301);
-    }
-
-    if (host === 'www.885201314.xyz') {
-      return new Response('Frontend works, please configure Cloudflare Pages Custom Domains.', { status: 200 });
-    }
-
-    return notFoundResponse();
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type': getMime(filePath),
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        ...SEC_HEADERS,
+      },
+    });
   }
+
+  // ── GET /preview/{type} — render template with schema defaults
+  if (path.startsWith('/preview/')) {
+    const type = path.split('/')[2];
+    const meta = await getTemplateMeta(env.EMOTIONALSPACE_KV, type);
+    if (!meta) return new Response('Template not found', { status: 404 });
+
+    const [htmlObj, schemaObj] = await Promise.all([
+      env.EMOTIONALSPACE_R2.get(`templates/${type}/${meta.version}/index.html`),
+      env.EMOTIONALSPACE_R2.get(`templates/${type}/${meta.version}/schema.json`),
+    ]);
+    if (!htmlObj) return new Response('Template HTML missing in R2', { status: 404 });
+
+    const html = await htmlObj.text();
+    const schema = schemaObj ? JSON.parse(await schemaObj.text()) : null;
+    const data = {};
+    (schema?.fields ?? []).forEach((f) => {
+      const key = typeof f === 'string' ? f : (f.id || f.key);
+      const defaultValue = typeof f === 'string' ? (f.default ?? '') : (f.default ?? '');
+      data[key] = defaultValue;
+    });
+
+    const rendered = html.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+      const val = data[key] ?? '';
+      return escapeHtml(String(val));
+    });
+
+    return new Response(rendered, {
+      headers: {
+        'Content-Type': 'text/html;charset=UTF-8',
+        'Cache-Control': 'no-cache, no-store',
+        ...SEC_HEADERS,
+      },
+    });
+  }
+
 
   // ── USER SUBDOMAIN ─────────────────────────────────────────────
   const subdomain = host.split('.')[0];
 
   if (!/^[a-zA-Z0-9-]{1,64}$/.test(subdomain)) {
     return notFoundResponse();
+  }
+
+  // ── Bot filter: protect KV/R2 quota from scrapers ────────────
+  // Strategy: whitelist-first. Allow known legit bots (SEO, social preview),
+  // then block anything that still looks like a bot/script.
+  const ua = request.headers.get('User-Agent') ?? '';
+  const WHITELIST = /Googlebot|Bingbot|facebookexternalhit|Twitterbot|LinkedInBot|Slackbot|Discordbot|TelegramBot|WhatsApp|Applebot/i;
+  const BLOCKLIST = /python-requests|go-http|curl\/|wget|scrapy|nikto|masscan|zgrab|headless|phantom|selenium|puppeteer/i;
+  if (!WHITELIST.test(ua) && BLOCKLIST.test(ua)) {
+    return new Response('Forbidden', { status: 403, headers: { ...SEC_HEADERS } });
   }
 
   const isPreview = url.searchParams.has('preview');
@@ -254,10 +244,10 @@ async function handleRequest(request, env, ctx) {
 
   // ── Preview mode: bypass all caches, read R2 directly ─────────
   if (isPreview) {
-    const cfgRaw = await env.ROMANCESPACE_KV.get(subdomain);
+    const cfgRaw = await env.EMOTIONALSPACE_KV.get(subdomain);
     if (!cfgRaw) return notFoundResponse();
 
-    const obj = await fetchPageHtml(env.ROMANCESPACE_R2, subdomain);
+    const obj = await fetchPageHtml(env.EMOTIONALSPACE_R2, subdomain);
     if (!obj) return notFoundResponse();
 
     return new Response(await obj.text(), {
@@ -277,13 +267,13 @@ async function handleRequest(request, env, ctx) {
   const cached = await caches.default.match(cacheKey);
   if (cached) return cached;
 
-  const cfgRaw = await env.ROMANCESPACE_KV.get(subdomain);
+  const cfgRaw = await env.EMOTIONALSPACE_KV.get(subdomain);
   if (!cfgRaw) return notFoundResponse();
 
   let cfg;
   try { cfg = JSON.parse(cfgRaw); } catch { return notFoundResponse(); }
 
-  const obj = await fetchPageHtml(env.ROMANCESPACE_R2, subdomain);
+  const obj = await fetchPageHtml(env.EMOTIONALSPACE_R2, subdomain);
   if (!obj) return notFoundResponse();
 
   let html = await obj.text();
@@ -292,19 +282,23 @@ async function handleRequest(request, env, ctx) {
   // Compare the tmpl-version stamp in the stored HTML against the current KV meta.
   // If stale, trigger a one-shot background re-render on the VPS — no R2 writes here.
   if (cfg.template) {
-    const tmplMeta = await getTemplateMeta(env.ROMANCESPACE_KV, cfg.template);
+    const tmplMeta = await getTemplateMeta(env.EMOTIONALSPACE_KV, cfg.template);
     if (tmplMeta?.version) {
       const isStale = !html.includes(`<meta name="tmpl-version" content="${tmplMeta.version}">`);
       if (isStale) {
         console.log(`[Worker] Stale page detected for ${subdomain} (want: ${tmplMeta.version}). Triggering lazy re-render.`);
         ctx.waitUntil(
-          fetch(`https://api.885201314.xyz/api/project/re-render/${subdomain}`, {
-            method: 'POST',
-            headers: {
-              'X-Admin-Key': env.ADMIN_KEY ?? '',
-              'Content-Type': 'application/json',
-            },
-          }).catch((e) => console.error('[Worker] Lazy re-render fetch failed:', e.message))
+          Promise.race([
+            fetch(`https://api.885201314.xyz/api/project/re-render/${subdomain}`, {
+              method: 'POST',
+              headers: {
+                'X-Admin-Key': env.ADMIN_KEY ?? '',
+                'X-Internal-Source': 'worker',
+                'Content-Type': 'application/json',
+              },
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+          ]).catch((e) => console.error('[Worker] Lazy re-render failed:', e.message))
         );
         // Serve stale content immediately — user gets the old version for now,
         // and will see the updated version on the next CDN miss (after re-render + cache purge).
